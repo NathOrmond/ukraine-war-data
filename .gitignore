@@ -1,0 +1,41 @@
+# R specific files
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+*.RData
+*.rds
+.Renviron
+
+# Generated output files
+/output/figures/*
+/output/tables/*
+
+# Temporary and cache files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Notebook checkpoints
+*.nb.html
+.ipynb_checkpoints/
+
+# R Markdown output
+*.pdf
+*.docx
+
+# Packrat and renv directories
+packrat/lib*/
+packrat/src/
+renv/library/
+renv/.cache/
+
+# Log files
+*.log
+
+# Exceptions - add specific files you want to track with ! prefix
+# !data/raw/README.md
+# !data/processed/README.md
+# !output/figures/README.md
+# !output/tables/README.md

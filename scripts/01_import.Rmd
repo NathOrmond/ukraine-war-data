@@ -1,0 +1,76 @@
+---
+title: "Ukraine Support Tracker Data Import"
+author: "Nathan Ormond"
+date: "`r Sys.Date()`"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Load Required Libraries
+
+```{r load-libraries}
+# Install required packages if missing
+if (!requireNamespace("readxl", quietly = TRUE)) install.packages("readxl")
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("here", quietly = TRUE)) install.packages("here")
+if (!requireNamespace("janitor", quietly = TRUE)) install.packages("janitor")
+
+# Load libraries
+library(readxl)
+library(tidyverse)
+library(here)
+library(janitor)
+```
+
+## 2. Initial Data Exploration
+
+First, let's check what sheets exist in the Excel file:
+
+```{r explore-sheets}
+xlsx_path <- here("data", "raw", "f319e1c8-5654-4cd6-b4c7-5722ae437d30-Ukraine_Support_Tracker_Release_21.xlsx")
+
+# List all sheets in the Excel file
+sheet_names <- excel_sheets(xlsx_path)
+print(sheet_names)
+```
+
+## 3. Examining Key Data Sheets
+
+With 91 sheets in the Excel file, we need to be strategic about our exploration. Let's focus on sheets that likely contain the most important data for our analysis.
+
+```{r examine-key-sheets}
+# Define key sheets that are likely to contain the main data
+key_sheets <- c(
+  "Bilateral Assistance, MAIN DATA",  # This appears to be the primary dataset
+  "Country Summary (€)",              # Summary in Euros
+  "Country Summary ($)",              # Summary in USD
+  "Aggregates by Country Group"       # Group-level aggregations
+)
+
+# Loop through these key sheets and display their structure
+for (sheet in key_sheets) {
+  cat("\n\n### Sheet:", sheet, "\n")
+  
+  # Try to read the first few rows
+  tryCatch({
+    sample_data <- read_excel(xlsx_path, sheet = sheet, n_max = 5)
+    print(glimpse(sample_data))
+    
+    # Also show column names for easier reference
+    cat("\nColumn names:\n")
+    print(colnames(sample_data))
+    
+    # Show dimensions
+    cat("\nDimensions (rows x columns):", dim(sample_data)[1], "x", dim(sample_data)[2], "\n")
+    
+    # Show data types for each column
+    cat("\nColumn data types:\n")
+    print(sapply(sample_data, class))
+  }, error = function(e) {
+    cat("Error reading sheet:", e$message, "\n")
+  })
+}
+```
