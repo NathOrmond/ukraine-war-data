@@ -74,3 +74,51 @@ for (sheet in key_sheets) {
   })
 }
 ```
+
+
+## 4. Creating Ukraine Support Chart
+
+Now let's create a stacked bar chart showing aid contributions by country and type, similar to the reference image.
+
+```{r load-country-summary}
+# Load the Country Summary sheet in Euros
+country_summary <- read_excel(xlsx_path, sheet = "Country Summary (€)")
+
+# Take a look at the structure of the data
+glimpse(country_summary)
+
+# Display column names to identify the right columns for our chart
+colnames(country_summary)
+```
+
+Based on the column names we see, let's prepare the data for plotting:
+
+```{r}
+# First, let's read the sheet without skipping rows to see its full structure
+raw_data <- read_excel(xlsx_path, sheet = "Country Summary (€)")
+
+# Look at the first 15 rows to understand the layout
+head(raw_data, 15)
+
+# Check for any row that contains country names we recognize
+country_rows <- which(raw_data[[1]] %in% c("United States", "Germany", "United Kingdom", "Japan", "France"))
+print(paste("Rows with country names:", paste(country_rows, collapse = ", ")))
+
+# Let's see what rows 7-12 look like (adjusting based on what we find above)
+raw_data[7:12, 1:7]  # Show first 7 columns
+
+
+# identify what each column represents
+# check the headers by viewing rows 6-7 for all columns
+raw_data[6:7, 1:10]  # Show first 10 columns to understand the headers
+
+# specific columns across more rows
+raw_data[7:20, c(1, 4, 5, 6, 7)]  # First column plus likely aid columns
+
+# Look at rows 5-7 to see all the column headers
+raw_data[5:7, 4:10]  # Focus on columns that likely contain our data of interest
+
+``` 
+
+```{r}
+```

@@ -1,0 +1,402 @@
+---
+title: "Ukraine Support Data Exploration"
+author: "Nathan Ormond"
+date: "`r Sys.Date()`"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 1. Load Required Libraries
+
+```{r load-libraries}
+# Install required packages if missing
+if (!requireNamespace("readxl", quietly = TRUE)) install.packages("readxl")
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("here", quietly = TRUE)) install.packages("here")
+if (!requireNamespace("janitor", quietly = TRUE)) install.packages("janitor")
+
+# Load libraries
+library(readxl)
+library(tidyverse)
+library(here)
+library(janitor)
+```
+
+## 2. Load and Prepare Data
+
+First, let's load the country summary data:
+
+```{r load-data}
+# Path to the Excel file
+xlsx_path <- here("data", "raw", "f319e1c8-5654-4cd6-b4c7-5722ae437d30-Ukraine_Support_Tracker_Release_21.xlsx")
+
+# Read raw data
+raw_data <- read_excel(xlsx_path, sheet = "Country Summary (€)")
+
+# Extract the country aid data (skipping header rows)
+# Column position 1: Country names
+# Column position 4: Financial allocations
+# Column position 5: Humanitarian allocations
+# Column position 6: Military allocations
+aid_data <- raw_data[8:nrow(raw_data), c(1, 4, 5, 6)]
+
+# Rename columns for clarity
+colnames(aid_data) <- c("Country", "Financial", "Humanitarian", "Military")
+
+# Convert values to numeric and calculate totals
+aid_data <- aid_data %>%
+  mutate(
+    Financial = as.numeric(Financial),
+    Humanitarian = as.numeric(Humanitarian),
+    Military = as.numeric(Military),
+    Total = Financial + Humanitarian + Military
+  )
+
+# Filter out rows that aren't countries or have NA values
+aid_data <- aid_data %>%
+  filter(!is.na(Country), !is.na(Total))
+
+# View the data
+head(aid_data, 10)
+```
+
+## 3. Create Europe + UK + Canada Aggregate
+
+```{r create-aggregate}
+# Define EU member states
+eu_members <- c("Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czechia", 
+                "Denmark", "Estonia", "Finland", "France", "Germany", "Greece", 
+                "Hungary", "Ireland", "Italy", "Latvia", "Lithuania", "Luxembourg", 
+                "Malta", "Netherlands", "Poland", "Portugal", "Romania", "Slovakia", 
+                "Slovenia", "Spain", "Sweden")
+
+# Create the aggregate (check for actual names in your dataset)
+europe_plus <- aid_data %>%
+  filter(
+    Country %in% eu_members | 
+    Country %in% c("United Kingdom", "Canada") |
+    grepl("EU institutions|EU \\(Commission and Council\\)", Country)
+  ) %>%
+  summarise(
+    Country = "Europe + UK + Canada",
+    Financial = sum(Financial, na.rm = TRUE),
+    Humanitarian = sum(Humanitarian, na.rm = TRUE),
+    Military = sum(Military, na.rm = TRUE),
+    Total = sum(Total, na.rm = TRUE)
+  )
+
+# Combine with original data
+aid_data_with_aggregate <- bind_rows(aid_data, europe_plus)
+
+# Show the aggregate
+europe_plus
+```
+
+## 4. Basic Chart: Top Donors Including Our Aggregate
+
+```{r top-donors-chart, fig.width=10, fig.height=8}
+# Get top donors including the aggregate
+top_donors_with_aggregate <- aid_data_with_aggregate %>%
+  arrange(desc(Total)) %>%
+  head(15)
+
+# Create data for plotting
+plot_data <- top_donors_with_aggregate %>%
+  pivot_longer(
+    cols = c(Financial, Humanitarian, Military),
+    names_to = "Aid_Type",
+    values_to = "Amount"
+  )
+
+# Create the stacked bar chart
+ggplot(plot_data, aes(x = reorder(Country, -Amount, sum), y = Amount, fill = Aid_Type)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("Financial" = "#4472C4", 
+                             "Humanitarian" = "#1F3864", 
+                             "Military" = "#C9C9C9")) +
+  geom_text(data = top_donors_with_aggregate,
+            aes(x = reorder(Country, -Total), y = Total, label = round(Total, 2)),
+            inherit.aes = FALSE,
+            hjust = -0.2) +
+  labs(
+    title = "Ukraine Support by Country (in billion €)",
+    x = "",
+    y = ""
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    plot.margin = margin(r = 70, l = 10, b = 10, t = 10)
+  ) +
+  coord_flip()
+```
+
+## 5. US vs Europe + UK + Canada Comparison
+
+Let's create focused comparisons between these two major donor blocks:
+
+```{r create-comparison-data}
+# Create a focused comparison dataset
+comparison_data <- aid_data_with_aggregate %>%
+  filter(Country %in% c("United States", "Europe + UK + Canada"))
+
+# Show the comparison data
+comparison_data
+```
+
+### 5.1 Side-by-Side Comparison of Aid Types
+
+```{r aid-types-comparison, fig.width=10, fig.height=6}
+# Reshape data for comparison
+comparison_long <- comparison_data %>%
+  pivot_longer(
+    cols = c(Financial, Humanitarian, Military),
+    names_to = "Aid_Type",
+    values_to = "Amount"
+  )
+
+# Bar chart comparing aid types between the two entities
+ggplot(comparison_long, aes(x = Aid_Type, y = Amount, fill = Country)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_text(aes(label = round(Amount, 2)), 
+            position = position_dodge(width = 0.9),
+            vjust = -0.5) +
+  labs(
+    title = "Comparison of Aid Types: US vs Europe + UK + Canada",
+    subtitle = "Aid to Ukraine in billion €",
+    x = "",
+    y = "Amount (billion €)"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1")
+```
+
+### 5.2 Aid Composition Comparison (Pie Charts)
+
+```{r aid-composition, fig.width=10, fig.height=6}
+# Calculate percentages for pie charts
+pie_data <- comparison_long %>%
+  group_by(Country) %>%
+  mutate(Percentage = Amount / sum(Amount) * 100)
+
+# Create pie charts
+ggplot(pie_data, aes(x = "", y = Percentage, fill = Aid_Type)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar("y", start = 0) +
+  geom_text(aes(label = paste0(round(Percentage, 1), "%")),
+            position = position_stack(vjust = 0.5)) +
+  facet_wrap(~Country) +
+  labs(
+    title = "Aid Type Distribution: US vs Europe + UK + Canada",
+    subtitle = "Percentage of total aid by type"
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_blank(),
+        axis.title = element_blank()) +
+  scale_fill_manual(values = c("Financial" = "#4472C4", 
+                              "Humanitarian" = "#1F3864", 
+                              "Military" = "#C9C9C9"))
+```
+
+### 5.3 Total Aid Comparison
+
+```{r total-aid-comparison, fig.width=10, fig.height=6}
+# Calculate relative contributions
+total_aid <- sum(comparison_data$Total)
+comparison_data <- comparison_data %>%
+  mutate(Percentage = Total / total_aid * 100)
+
+# Create a simple bar chart for total aid
+ggplot(comparison_data, aes(x = Country, y = Total, fill = Country)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(Total, 2), " (", round(Percentage, 1), "%)")),
+            vjust = -0.5) +
+  labs(
+    title = "Total Ukraine Support: US vs Europe + UK + Canada",
+    subtitle = "Aid in billion € with percentage of combined total",
+    x = "",
+    y = "Amount (billion €)"
+  ) +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set1") +
+  theme(legend.position = "none")
+```
+
+### 5.4 Stacked Comparison 
+
+```{r stacked-comparison, fig.width=10, fig.height=6}
+# Stacked bar showing absolute amounts and relative contributions
+ggplot(comparison_long, aes(x = Country, y = Amount, fill = Aid_Type)) +
+  geom_bar(stat = "identity") +
+  geom_text(data = comparison_data,
+            aes(x = Country, y = Total, label = paste0(round(Total, 2), " (", round(Percentage, 1), "%)")),
+            position = position_stack(vjust = 1.05),
+            inherit.aes = FALSE) +
+  labs(
+    title = "Aid Composition: US vs Europe + UK + Canada",
+    subtitle = "Aid to Ukraine in billion € with percentage of combined total",
+    x = "",
+    y = "Amount (billion €)"
+  ) +
+  theme_minimal() +
+  scale_fill_manual(values = c("Financial" = "#4472C4", 
+                              "Humanitarian" = "#1F3864", 
+                              "Military" = "#C9C9C9"))
+```
+## 6. Key Findings and Observations
+
+Key metrics to inform our observations:
+
+```{r calculate-key-metrics}
+# Calculate percentage breakdowns for each donor
+us_data <- comparison_data %>%
+  filter(Country == "United States") %>%
+  mutate(
+    Military_Pct = Military / Total * 100,
+    Financial_Pct = Financial / Total * 100,
+    Humanitarian_Pct = Humanitarian / Total * 100
+  )
+
+europe_data <- comparison_data %>%
+  filter(Country == "Europe + UK + Canada") %>%
+  mutate(
+    Military_Pct = Military / Total * 100,
+    Financial_Pct = Financial / Total * 100,
+    Humanitarian_Pct = Humanitarian / Total * 100
+  )
+
+# Calculate combined total and percentages
+total_aid <- sum(comparison_data$Total)
+us_pct <- us_data$Total / total_aid * 100
+europe_pct <- europe_data$Total / total_aid * 100
+
+# Calculate differences between donors
+fin_diff_pct <- (europe_data$Financial / us_data$Financial - 1) * 100
+hum_diff_pct <- (europe_data$Humanitarian / us_data$Humanitarian - 1) * 100
+mil_diff_abs <- europe_data$Military - us_data$Military
+total_diff_abs <- europe_data$Total - us_data$Total
+
+# Display calculated metrics
+metrics <- tibble(
+  Metric = c(
+    "US Total Aid (€ billion)",
+    "Europe+ Total Aid (€ billion)",
+    "US Share of Combined Aid (%)",
+    "Europe+ Share of Combined Aid (%)",
+    "US Military Aid (%)",
+    "Europe+ Military Aid (%)",
+    "US Humanitarian Aid (%)",
+    "Europe+ Humanitarian Aid (%)",
+    "US Financial Aid (%)",
+    "Europe+ Financial Aid (%)",
+    "Financial Aid Difference (%)",
+    "Humanitarian Aid Difference (%)",
+    "Military Aid Absolute Difference (€ billion)",
+    "Total Aid Absolute Difference (€ billion)"
+  ),
+  Value = c(
+    round(us_data$Total, 2),
+    round(europe_data$Total, 2),
+    round(us_pct, 1),
+    round(europe_pct, 1),
+    round(us_data$Military_Pct, 1),
+    round(europe_data$Military_Pct, 1),
+    round(us_data$Humanitarian_Pct, 1),
+    round(europe_data$Humanitarian_Pct, 1),
+    round(us_data$Financial_Pct, 1),
+    round(europe_data$Financial_Pct, 1),
+    round(fin_diff_pct, 1),
+    round(hum_diff_pct, 1),
+    round(mil_diff_abs, 2),
+    round(total_diff_abs, 2)
+  )
+)
+
+# Display as formatted table
+knitr::kable(metrics, caption = "Key Metrics for US vs Europe+ Aid Comparison")
+```
+
+Based on the calculations above, here are the key findings:
+
+1. **Total Aid**: Europe + UK + Canada collectively provides `r round(europe_data$Total, 2)` billion € (`r round(europe_pct, 1)`% of the combined total) compared to the United States' `r round(us_data$Total, 2)` billion € (`r round(us_pct, 1)`%). This demonstrates that the European alliance, when considered collectively, is the larger donor to Ukraine's war effort, exceeding US contributions by approximately `r round(total_diff_abs, 2)` billion €.
+
+2. **Aid Composition**: The composition of aid differs significantly between the two donors. The US allocates a much higher proportion to military aid (`r round(us_data$Military_Pct, 1)`% of its total aid) compared to Europe + UK + Canada (`r round(europe_data$Military_Pct, 1)`%). Conversely, Europe + UK + Canada allocates a significantly larger portion to humanitarian aid (`r round(europe_data$Humanitarian_Pct, 1)`% vs `r round(us_data$Humanitarian_Pct, 1)`% for the US), and provides more financial assistance both proportionally and in absolute terms.
+
+3. **Military vs. Non-Military Aid**: While the total military aid amounts are similar in absolute terms (US: `r round(us_data$Military, 2)` billion € vs Europe+: `r round(europe_data$Military, 2)` billion €, a difference of `r round(mil_diff_abs, 2)` billion €), the non-military components show greater disparity. Europe + UK + Canada provides significantly more humanitarian aid (`r round(europe_data$Humanitarian, 2)` billion € vs `r round(us_data$Humanitarian, 2)` billion €) and financial aid (`r round(europe_data$Financial, 2)` billion € vs `r round(us_data$Financial, 2)` billion €), indicating a more balanced approach to supporting Ukraine across different needs.
+
+4. **Financial Aid**: Europe + UK + Canada provides approximately `r round(fin_diff_pct, 1)`% more financial aid than the US (`r round(europe_data$Financial, 2)` billion € compared to `r round(us_data$Financial, 2)` billion €). This substantial difference suggests that European nations and their allies are more focused on economic stabilization and governance support, while the US emphasizes military capabilities.
+
+5. **Implications**: These findings suggest a complementary approach to supporting Ukraine, with the US focusing more on military aid while European nations provide greater financial and humanitarian support. This division may reflect different strategic priorities, domestic political considerations, and geographic proximity to the conflict. Together, these contributions create a more comprehensive support package than either bloc could provide alone, addressing Ukraine's military, economic, and humanitarian needs.
+
+## 7. Next Steps for Analysis
+
+Let's examine which specific analyses would be most valuable based on the data available:
+
+```{r analyze-potential-next-steps}
+# Check if GDP data is available in the dataset
+has_gdp_data <- "GDP" %in% colnames(aid_data) || 
+                any(grepl("GDP", colnames(raw_data)))
+
+# Check if time series data is available
+has_time_data <- "date" %in% colnames(aid_data) || 
+                 "month" %in% colnames(aid_data) ||
+                 any(grepl("date|month|time", tolower(colnames(raw_data))))
+
+# Check if weapon type data is available
+has_weapon_data <- any(grepl("weapon|military|equipment", 
+                             tolower(colnames(raw_data))))
+
+# Check if historical comparison data is available
+has_historical_data <- any(grepl("historical|comparison|war|ww", 
+                                 tolower(colnames(raw_data))))
+
+# Display available analysis options
+available_analyses <- tibble(
+  Analysis = c(
+    "Aid relative to GDP",
+    "Time dynamics of aid",
+    "Specific types of military aid",
+    "Historical comparisons",
+    "Aid delivery metrics"
+  ),
+  Available_Data = c(
+    has_gdp_data,
+    has_time_data,
+    has_weapon_data,
+    has_historical_data,
+    TRUE  # Basic analysis possible with any dataset
+  ),
+  Priority = c(
+    if(has_gdp_data) "High" else "Requires additional data",
+    if(has_time_data) "High" else "Requires additional data",
+    if(has_weapon_data) "Medium" else "Requires additional data",
+    if(has_historical_data) "Medium" else "Requires additional data",
+    "High"
+  )
+)
+
+knitr::kable(available_analyses, caption = "Potential Next Analyses Based on Available Data")
+```
+
+Potential next steps for deeper analysis:
+
+1. **Aid relative to GDP**: Calculate and compare aid as a percentage of donor GDP to provide a more proportional view of burden-sharing. This would help assess relative economic commitment, as smaller countries with lower GDP may be contributing more significantly relative to their economic capacity.
+
+2. **Time dynamics of aid**: Analyze how aid commitments and allocations have evolved throughout the conflict. This would reveal whether support has been consistent or whether there are observable trends, such as increasing military support in response to specific battlefield developments.
+
+3. **Detailed military aid analysis**: Break down military aid by categories (heavy weapons, ammunition, defensive systems, etc.) to better understand the nature and strategic impact of different donors' military support.
+
+4. **Historical comparison**: Compare current aid patterns with historical examples such as World War II Lend-Lease, Cold War assistance programs, or more recent conflicts. Based on the sheet names in our dataset, this analysis appears particularly feasible.
+
+5. **Regional patterns**: Investigate whether geographic proximity to the conflict correlates with aid amount or type. This could reveal whether countries closer to Ukraine tend to provide different kinds of support than those further away.
+
+6. **Within-group analysis**: Examine the breakdown of contributions within the Europe + UK + Canada group to identify which specific countries are driving the overall trends and whether there are significant disparities in burden-sharing.
+
+7. **Aid effectiveness analysis**: Evaluate available data on aid delivery timelines, implementation challenges, and impact metrics to assess how effectively different types of support are addressing Ukraine's needs.
